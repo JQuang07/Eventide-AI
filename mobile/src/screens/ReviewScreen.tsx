@@ -7,8 +7,12 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { ApiService } from '../services/api';
 import { CanonicalEvent } from '../types/event';
 
@@ -18,9 +22,28 @@ export default function ReviewScreen({ route, navigation }: any) {
   const { event: initialEvent } = route.params;
   const [event, setEvent] = useState<CanonicalEvent>(initialEvent);
   const [saving, setSaving] = useState(false);
+  
+  // Date picker states
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [startDate, setStartDate] = useState(new Date(event.startTime));
+  const [endDate, setEndDate] = useState(event.endTime ? new Date(event.endTime) : null);
 
   const updateField = (field: keyof CanonicalEvent, value: any) => {
-    setEvent({ ...event, [field]: value });
+    const updatedEvent = { ...event, [field]: value };
+    setEvent(updatedEvent);
+    
+    // Sync date picker states when times change
+    if (field === 'startTime' && value) {
+      setStartDate(new Date(value));
+    }
+    if (field === 'endTime') {
+      if (value) {
+        setEndDate(new Date(value));
+      } else {
+        setEndDate(null);
+      }
+    }
   };
 
   const handleSave = async () => {
@@ -40,9 +63,45 @@ export default function ReviewScreen({ route, navigation }: any) {
     return date.toLocaleString();
   };
 
+  const handleStartDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowStartPicker(false);
+    }
+    if (selectedDate) {
+      setStartDate(selectedDate);
+      // Update event with new ISO string
+      updateField('startTime', selectedDate.toISOString());
+    }
+  };
+
+  const handleEndDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowEndPicker(false);
+      if (event.type === 'dismissed') {
+        // User dismissed - don't update
+        return;
+      }
+    }
+    if (selectedDate) {
+      setEndDate(selectedDate);
+      // Update event with new ISO string
+      updateField('endTime', selectedDate.toISOString());
+    }
+  };
+
+  const removeEndTime = () => {
+    setEndDate(null);
+    updateField('endTime', undefined);
+  };
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.sectionTitle}>Event Details</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <ScrollView 
+        style={styles.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <Text style={styles.sectionTitle}>Event Details</Text>
 
       <View style={styles.fieldContainer}>
         <Text style={styles.label}>Title *</Text>
@@ -55,40 +114,148 @@ export default function ReviewScreen({ route, navigation }: any) {
       </View>
 
       <View style={styles.fieldContainer}>
-        <Text style={styles.label}>Description</Text>
+        <Text style={styles.label}>Description {!event.description && <Text style={styles.optionalLabel}>(Optional)</Text>}</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
           value={event.description || ''}
-          onChangeText={(text) => updateField('description', text)}
-          placeholder="Event description"
+          onChangeText={(text) => updateField('description', text || undefined)}
+          placeholder="Event description (optional - can leave empty)"
           multiline
           numberOfLines={3}
         />
+        {!event.description && (
+          <Text style={styles.hintText}>No description found - you can add one or leave empty</Text>
+        )}
       </View>
 
       <View style={styles.fieldContainer}>
         <Text style={styles.label}>Start Time *</Text>
-        <Text style={styles.dateTimeText}>{formatDateTime(event.startTime)}</Text>
+        <TouchableOpacity 
+          style={styles.datePickerButton}
+          onPress={() => setShowStartPicker(true)}
+        >
+          <Text style={styles.dateTimeText}>{formatDateTime(event.startTime)}</Text>
+          <Text style={styles.tapHint}>Tap to edit</Text>
+        </TouchableOpacity>
         <Text style={styles.timezoneText}>Timezone: {event.timezone}</Text>
+        {showStartPicker && (
+          <DateTimePicker
+            value={startDate}
+            mode="datetime"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={handleStartDateChange}
+            minimumDate={new Date()}
+          />
+        )}
+        {Platform.OS === 'ios' && showStartPicker && (
+          <View style={styles.pickerButtonRow}>
+            <TouchableOpacity
+              style={styles.pickerDoneButton}
+              onPress={() => setShowStartPicker(false)}
+            >
+              <Text style={styles.pickerDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
-      {event.endTime && (
-        <View style={styles.fieldContainer}>
-          <Text style={styles.label}>End Time</Text>
-          <Text style={styles.dateTimeText}>{formatDateTime(event.endTime)}</Text>
-        </View>
-      )}
+      <View style={styles.fieldContainer}>
+        <Text style={styles.label}>
+          End Time {!event.endTime && <Text style={styles.optionalLabel}>(Optional)</Text>}
+        </Text>
+        {event.endTime ? (
+          <>
+            <TouchableOpacity 
+              style={styles.datePickerButton}
+              onPress={() => setShowEndPicker(true)}
+            >
+              <Text style={styles.dateTimeText}>{formatDateTime(event.endTime)}</Text>
+              <Text style={styles.tapHint}>Tap to edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.removeButton}
+              onPress={removeEndTime}
+            >
+              <Text style={styles.removeButtonText}>Remove End Time</Text>
+            </TouchableOpacity>
+            {showEndPicker && (
+              <DateTimePicker
+                value={endDate || new Date(startDate.getTime() + 60 * 60 * 1000)}
+                mode="datetime"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleEndDateChange}
+                minimumDate={startDate}
+              />
+            )}
+            {Platform.OS === 'ios' && showEndPicker && (
+              <View style={styles.pickerButtonRow}>
+                <TouchableOpacity
+                  style={styles.pickerDoneButton}
+                  onPress={() => setShowEndPicker(false)}
+                >
+                  <Text style={styles.pickerDoneText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.addEndTimeButton}
+              onPress={() => {
+                // Default to 1 hour after start time
+                const defaultEnd = new Date(startDate.getTime() + 60 * 60 * 1000);
+                setEndDate(defaultEnd);
+                updateField('endTime', defaultEnd.toISOString());
+                setShowEndPicker(true);
+              }}
+            >
+              <Text style={styles.addEndTimeText}>+ Add End Time</Text>
+            </TouchableOpacity>
+            {showEndPicker && endDate && (
+              <>
+                <DateTimePicker
+                  value={endDate}
+                  mode="datetime"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={handleEndDateChange}
+                  minimumDate={startDate}
+                />
+                {Platform.OS === 'ios' && (
+                  <View style={styles.pickerButtonRow}>
+                    <TouchableOpacity
+                      style={styles.pickerDoneButton}
+                      onPress={() => setShowEndPicker(false)}
+                    >
+                      <Text style={styles.pickerDoneText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </View>
 
       <View style={styles.fieldContainer}>
-        <Text style={styles.label}>Location</Text>
+        <Text style={styles.label}>Location {!event.location && <Text style={styles.optionalLabel}>(Optional - can leave empty)</Text>}</Text>
         <TextInput
           style={styles.input}
           value={event.location?.name || event.location?.address || ''}
-          onChangeText={(text) => updateField('location', { name: text })}
-          placeholder="Event location"
+          onChangeText={(text) => {
+            if (text.trim()) {
+              updateField('location', { name: text });
+            } else {
+              updateField('location', null);
+            }
+          }}
+          placeholder="Event location (optional)"
         />
-        {event.location?.address && (
+        {event.location?.address && event.location.address !== event.location?.name && (
           <Text style={styles.addressText}>{event.location.address}</Text>
+        )}
+        {!event.location && (
+          <Text style={styles.hintText}>No location found - you can add one or leave empty</Text>
         )}
       </View>
 
@@ -102,6 +269,16 @@ export default function ReviewScreen({ route, navigation }: any) {
           ))}
         </View>
       )}
+
+      <View style={styles.summaryContainer}>
+        <Text style={styles.summaryTitle}>Summary</Text>
+        <Text style={styles.summaryText}>
+          {event.title ? '✅ Title' : '❌ Title'} • {' '}
+          {event.startTime ? '✅ Date/Time' : '❌ Date/Time'} • {' '}
+          {event.location ? '✅ Location' : '⚠️ No Location'} • {' '}
+          {event.description ? '✅ Description' : '⚠️ No Description'}
+        </Text>
+      </View>
 
       <TouchableOpacity
         style={[styles.saveButton, saving && styles.saveButtonDisabled]}
@@ -122,7 +299,8 @@ export default function ReviewScreen({ route, navigation }: any) {
       >
         <Text style={styles.cancelButtonText}>Cancel</Text>
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -214,6 +392,94 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: '#007AFF',
     fontSize: 16
+  },
+  optionalLabel: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#666',
+    fontStyle: 'italic'
+  },
+  hintText: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    fontStyle: 'italic'
+  },
+  summaryContainer: {
+    backgroundColor: '#e8f4f8',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#007AFF'
+  },
+  summaryTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#007AFF'
+  },
+  summaryText: {
+    fontSize: 13,
+    color: '#333',
+    lineHeight: 20
+  },
+  datePickerButton: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginTop: 4
+  },
+  tapHint: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginTop: 4,
+    fontStyle: 'italic'
+  },
+  pickerButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#ddd'
+  },
+  pickerDoneButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8
+  },
+  pickerDoneText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  addEndTimeButton: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    marginTop: 4
+  },
+  addEndTimeText: {
+    color: '#007AFF',
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  removeButton: {
+    marginTop: 8,
+    padding: 8,
+    alignItems: 'center'
+  },
+  removeButtonText: {
+    color: '#ff3b30',
+    fontSize: 14
   }
 });
 

@@ -1,6 +1,8 @@
 // API Configuration
+// For physical device (Expo Go), use your computer's IP address
+// For iOS Simulator, localhost works
 export const API_BASE_URL = __DEV__
-  ? 'http://localhost:3000'
+  ? 'http://143.215.104.253:3000'  // Your computer's IP - update if it changes
   : 'https://your-production-api.com';
 
 export const API_ENDPOINTS = {

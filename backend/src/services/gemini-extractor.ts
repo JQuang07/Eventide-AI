@@ -1,6 +1,16 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import dotenv from 'dotenv';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// Ensure .env is loaded
+dotenv.config();
+
+const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  console.error('❌ GEMINI_API_KEY is not set in environment variables!');
+  throw new Error('GEMINI_API_KEY is required. Check your .env file.');
+}
+
+const genAI = new GoogleGenerativeAI(apiKey);
 
 export interface ExtractedEvent {
   title: string;
@@ -14,7 +24,9 @@ export class GeminiExtractor {
   private model: any;
 
   constructor() {
-    this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // Use gemini-2.0-flash (available model from API)
+    // Model names need to match exactly what's available
+    this.model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   }
 
   async extractFromImage(imageBase64: string): Promise<ExtractedEvent> {

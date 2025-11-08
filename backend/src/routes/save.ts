@@ -8,6 +8,7 @@ const calendarService = new CalendarService();
 
 const eventSchema = z.object({
   title: z.string().min(1),
+  description: z.string().optional(),
   startTime: z.string(),
   endTime: z.string().optional(),
   location: z.object({
@@ -18,11 +19,13 @@ const eventSchema = z.object({
       lat: z.number(),
       lng: z.number()
     }).optional()
-  }).optional(),
+  }).nullable().optional(), // Allow null or undefined
   timezone: z.string(),
   source: z.enum(['flyer', 'url', 'text', 'email']),
-  travelBufferMinutes: z.number().optional()
-});
+  sourceMetadata: z.any().optional(), // Allow sourceMetadata
+  travelBufferMinutes: z.number().optional(),
+  conflicts: z.any().optional() // Allow conflicts (will be ignored on save)
+}).passthrough(); // Allow extra fields
 
 router.post('/', async (req, res, next) => {
   try {
@@ -42,7 +45,12 @@ router.post('/', async (req, res, next) => {
     });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid event data', details: error.errors });
+      console.error('Validation error:', error.errors);
+      return res.status(400).json({ 
+        error: 'Invalid event data', 
+        details: error.errors,
+        received: Object.keys(req.body)
+      });
     }
     next(error);
   }

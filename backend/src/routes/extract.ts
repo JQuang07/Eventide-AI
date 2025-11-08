@@ -44,33 +44,42 @@ router.post('/', async (req, res, next) => {
     }
 
     // Step 2: Resolve location
-    let location = null;
+    let location: any = null;
     let timezone = 'America/Los_Angeles'; // Default fallback
 
-    if (extracted.location) {
-      const placeResult = await placesResolver.resolve(extracted.location);
-      if (placeResult) {
-        location = {
-          name: placeResult.name || extracted.location,
-          address: placeResult.formattedAddress,
-          placeId: placeResult.placeId,
-          coordinates: placeResult.location
-        };
+    if (extracted.location && extracted.location.trim()) {
+      try {
+        const placeResult = await placesResolver.resolve(extracted.location);
+        if (placeResult) {
+          location = {
+            name: placeResult.name || extracted.location,
+            address: placeResult.formattedAddress,
+            placeId: placeResult.placeId,
+            coordinates: placeResult.location
+          };
 
-        // Resolve timezone from coordinates
-        const tzResult = await timezoneResolver.resolve(
-          placeResult.location.lat,
-          placeResult.location.lng
-        );
-        if (tzResult) {
-          timezone = tzResult.timeZoneId;
+          // Resolve timezone from coordinates
+          const tzResult = await timezoneResolver.resolve(
+            placeResult.location.lat,
+            placeResult.location.lng
+          );
+          if (tzResult) {
+            timezone = tzResult.timeZoneId;
+          }
+        } else {
+          // Location string exists but couldn't resolve - use raw string
+          location = {
+            name: extracted.location
+          };
         }
-      } else {
+      } catch (error) {
+        // If resolution fails, just use the raw location string
         location = {
           name: extracted.location
         };
       }
     }
+    // If no location extracted, location stays null (which is fine)
 
     // Step 3: Build canonical event
     const startTime = `${extracted.date}T${extracted.time}`;

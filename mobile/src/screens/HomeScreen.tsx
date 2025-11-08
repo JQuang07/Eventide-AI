@@ -6,7 +6,9 @@ import {
   StyleSheet,
   TextInput,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Keyboard,
+  TouchableWithoutFeedback
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
@@ -22,8 +24,12 @@ export default function HomeScreen({ navigation }: any) {
   const handleExtract = async (type: 'image' | 'url' | 'text', data: string) => {
     setLoading(true);
     try {
+      // Step 1: Extract event info
       const response = await apiService.extract({ type, data });
-      navigation.navigate('Review', { event: response.event });
+      const event = response.event;
+      
+      // Step 2: Show review screen (user can edit/fill missing fields)
+      navigation.navigate('Review', { event });
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to extract event');
     } finally {
@@ -80,9 +86,10 @@ export default function HomeScreen({ navigation }: any) {
   }, []);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create Event from Anything</Text>
-      <Text style={styles.subtitle}>Capture a flyer, share a URL, or paste text</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <View style={styles.container}>
+        <Text style={styles.title}>Create Event from Anything</Text>
+        <Text style={styles.subtitle}>Capture a flyer, share a URL, or paste text</Text>
 
       {loading && (
         <View style={styles.loadingContainer}>
@@ -140,7 +147,8 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={styles.submitButtonText}>Extract Event</Text>
         </TouchableOpacity>
       </View>
-    </View>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 

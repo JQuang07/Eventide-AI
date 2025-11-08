@@ -12,6 +12,12 @@ export interface UrlMetadata {
 export class UrlExpander {
   async expand(url: string): Promise<UrlMetadata> {
     try {
+      // Skip non-HTTP URLs (e.g., exp://, file://, etc.)
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        console.log(`Skipping URL expansion for non-HTTP URL: ${url.substring(0, 50)}`);
+        return {}; // Return empty metadata
+      }
+
       // Try to fetch oEmbed first (for Instagram, Twitter, etc.)
       const oEmbedUrl = this.getOEmbedUrl(url);
       if (oEmbedUrl) {
@@ -48,7 +54,10 @@ export class UrlExpander {
         openGraph: ogTags
       };
     } catch (error: any) {
-      console.error('URL expansion error:', error.message);
+      // Only log if it's not a protocol error (those are expected for non-HTTP URLs)
+      if (!error.message?.includes('Unsupported protocol')) {
+        console.error('URL expansion error:', error.message);
+      }
       return {}; // Return minimal object
     }
   }
