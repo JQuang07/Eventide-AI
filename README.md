@@ -3,6 +3,10 @@
 **Project**: Eventide AI  
 **Status**: ✅ Full Implementation Complete
 
+**Demo Video**: https://www.youtube.com/watch?v=3Ega8s71x74
+
+**Submission Link**: https://devpost.com/software/eventide-ai
+
 Eventide AI transforms any user-shared content (images, videos, URLs, text) into verified Google Calendar events with intelligent extraction, conflict detection, and task management.
 
 ---
