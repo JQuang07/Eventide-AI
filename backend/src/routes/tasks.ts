@@ -25,7 +25,7 @@ router.post('/suggest', async (req, res, next) => {
       return res.status(400).json({ error: 'Event data required' });
     }
 
-    const suggestions = tasksService.generateSuggestedTasks(event);
+    const suggestions = await tasksService.generateSuggestedTasks(event);
     res.json({ suggestions });
   } catch (error: any) {
     next(error);
@@ -95,13 +95,19 @@ router.patch('/:taskId', async (req, res, next) => {
     const taskListId = await tasksService.getDefaultTaskListId();
     console.log('Using task list ID:', taskListId);
     
-    const success = await tasksService.updateTask(taskListId, decodedTaskId, req.body);
+    const result = await tasksService.updateTask(taskListId, decodedTaskId, req.body);
     
-    if (!success) {
+    if (!result) {
       return res.status(400).json({ error: 'Failed to update task' });
     }
     
-    res.json({ success: true, message: 'Task updated successfully' });
+    // If uncompleting, return the new event ID so frontend can update the task ID
+    const response: any = { success: true, message: 'Task updated successfully' };
+    if (result.newEventId) {
+      response.newEventId = result.newEventId;
+    }
+    
+    res.json(response);
   } catch (error: any) {
     console.error('Task update route error:', error);
     console.error('Error stack:', error.stack);

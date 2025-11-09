@@ -144,7 +144,7 @@ ${text}`;
 
 EXTRACT:
 - Event title or name (look for large text, headlines, event names - this is CRITICAL)
-- Date (look for dates in any format: "Dec 30", "12/30/2025", "December 30, 2025", etc.)
+- Date (look for dates in any format: "Dec 30", "12/30/2025", "December 30, 2025", etc.) - ONLY if clearly visible or can be reasonably inferred from contextual clues (e.g., "tomorrow", "next Friday", "Nov 18"). DO NOT default to today's date if no date is visible. If no date is visible or inferable, set to null.
 - Start time (only if a specific time is visible like "8pm", "20:00", "8:00 PM")
 - End time (look for: "until", "ends at", time ranges like "8pm-10pm", "from 8pm to 10pm")
 - Location (venue name, address, city, place name)
@@ -170,11 +170,12 @@ CRITICAL DATE RESOLUTION:
 - If you see "opening on Tuesday Nov 18" or "starts Tuesday Nov 18", the event date is November 18th (all-day event if no time specified)
 - IMPORTANT: "opening on" or "starts" with a date means the event is on that date, not the day before
 - DO NOT subtract days from dates - if you see "Nov 18", use "2024-11-18" (or appropriate year), never "2024-11-17"
+- CRITICAL: If you cannot see a date or reasonably infer it from context, set date to null. DO NOT default to today's date.
 
 Format your response as JSON:
 {
   "title": "event title or null (REQUIRED if event info exists)",
-  "date": "date if visible or null (format: YYYY-MM-DD)",
+  "date": "date if visible or null (format: YYYY-MM-DD, DO NOT guess)",
   "time": "start time if visible or null (format: HH:MM:SS, only if specific time shown)",
   "endTime": "end time if visible or null (format: HH:MM:SS, NOT a date - only if end time or range shown)",
   "location": "location if visible or null",
@@ -429,54 +430,59 @@ Format your response as JSON:
     if (!extracted.title) {
       throw new Error('Title is required');
     }
-    if (!extracted.date) {
-      throw new Error('Date is required');
-    }
-
-    // Normalize date format (timezone-safe)
-    // Parse date string directly to avoid timezone shifts
-    let dateStr = extracted.date.trim();
     
-    // If it's already in YYYY-MM-DD format, use it directly
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      // Validate the date is valid
-      const [year, month, day] = dateStr.split('-').map(Number);
-      const date = new Date(year, month - 1, day); // month is 0-indexed
-      if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
-        extracted.date = dateStr; // Use as-is, no timezone conversion
+    // Date is now optional - if null or empty, leave it empty (user will fill it in)
+    let normalizedDate: string | null = null;
+    if (extracted.date && extracted.date !== null && extracted.date !== 'null') {
+      // Normalize date format (timezone-safe)
+      // Parse date string directly to avoid timezone shifts
+      let dateStr = extracted.date.trim();
+    
+      // If it's already in YYYY-MM-DD format, use it directly
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        // Validate the date is valid
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const date = new Date(year, month - 1, day); // month is 0-indexed
+        if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+          normalizedDate = dateStr; // Use as-is, no timezone conversion
+        } else {
+          throw new Error('Invalid date format');
+        }
       } else {
-        throw new Error('Invalid date format');
+        // Parse other date formats - use local timezone to avoid shifts
+        // Try parsing as local date first
+        let date: Date;
+        
+        // Try common date formats
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
+          // MM/DD/YYYY format
+          const [month, day, year] = dateStr.split('/').map(Number);
+          date = new Date(year, month - 1, day);
+        } else if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(dateStr)) {
+          // YYYY/MM/DD format
+          const [year, month, day] = dateStr.split('/').map(Number);
+          date = new Date(year, month - 1, day);
+        } else {
+          // Try standard Date parsing
+          date = new Date(dateStr);
+        }
+        
+        if (isNaN(date.getTime())) {
+          throw new Error(`Invalid date format: ${dateStr}`);
+        }
+        
+        // Extract YYYY-MM-DD using local date components (no timezone conversion)
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        normalizedDate = `${year}-${month}-${day}`;
+        
+        console.log(`[GeminiExtractor] Parsed date "${dateStr}" → "${normalizedDate}"`);
       }
     } else {
-      // Parse other date formats - use local timezone to avoid shifts
-      // Try parsing as local date first
-      let date: Date;
-      
-      // Try common date formats
-      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
-        // MM/DD/YYYY format
-        const [month, day, year] = dateStr.split('/').map(Number);
-        date = new Date(year, month - 1, day);
-      } else if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(dateStr)) {
-        // YYYY/MM/DD format
-        const [year, month, day] = dateStr.split('/').map(Number);
-        date = new Date(year, month - 1, day);
-      } else {
-        // Try standard Date parsing
-        date = new Date(dateStr);
-      }
-      
-      if (isNaN(date.getTime())) {
-        throw new Error(`Invalid date format: ${dateStr}`);
-      }
-      
-      // Extract YYYY-MM-DD using local date components (no timezone conversion)
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      extracted.date = `${year}-${month}-${day}`;
-      
-      console.log(`[GeminiExtractor] Parsed date "${dateStr}" → "${extracted.date}"`);
+      // No date provided - leave it null
+      normalizedDate = null;
+      console.log(`[GeminiExtractor] No date provided, leaving empty for user to fill`);
     }
 
     // If time is provided, normalize it; otherwise leave it undefined for all-day event
@@ -504,10 +510,13 @@ Format your response as JSON:
       }
     }
 
+    // If date is null, use empty string - extract route will handle it
+    const finalDate = normalizedDate || '';
+    
     return {
       title: extracted.title.trim(),
       description: this.limitDescription(extracted.description),
-      date: extracted.date,
+      date: finalDate,
       time: extracted.time, // Can be undefined for all-day events
       endTime: extracted.endTime, // Already normalized above
       location: extracted.location?.trim()

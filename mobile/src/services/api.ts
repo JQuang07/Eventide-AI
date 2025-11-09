@@ -171,7 +171,7 @@ export class ApiService {
     notes?: string;
     status?: 'needsAction' | 'completed';
     due?: string;
-  }): Promise<{ success: boolean }> {
+  }): Promise<{ success: boolean; newEventId?: string }> {
     if (!taskId || taskId.trim() === '') {
       throw new Error('Task ID is required');
     }

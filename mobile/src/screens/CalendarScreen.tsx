@@ -102,7 +102,22 @@ export default function CalendarScreen({ navigation }: any) {
         };
       });
       console.log('Loaded tasks:', tasksWithIds.map((t: any) => ({ id: t.id, title: t.title })));
-      setAllTasks(tasksWithIds);
+      
+      // Merge with existing tasks to preserve completed tasks that were deleted from calendar
+      setAllTasks(prev => {
+        // Create a map of new tasks by ID
+        const newTasksMap = new Map(tasksWithIds.map(t => [t.id, t]));
+        
+        // Keep completed tasks from previous state that aren't in the new tasks
+        const completedTasksToKeep = prev.filter(t => 
+          t.status === 'completed' && !newTasksMap.has(t.id)
+        );
+        
+        // Combine new tasks with preserved completed tasks
+        const mergedTasks = [...tasksWithIds, ...completedTasksToKeep];
+        
+        return mergedTasks;
+      });
     } catch (error: any) {
       console.error('Error loading calendar data:', error);
     } finally {
@@ -254,18 +269,33 @@ export default function CalendarScreen({ navigation }: any) {
       return;
     }
     
-    // Optimistic update - update UI immediately
     const newStatus = task.status === 'completed' ? 'needsAction' : 'completed';
     const previousStatus = task.status;
     
-    // Update UI immediately
+    // Optimistically update UI - keep task in list but update status
     setAllTasks(prev => prev.map(t => 
       t.id === task.id ? { ...t, status: newStatus } : t
     ));
     
     // Make API call in background
     try {
-      await apiService.updateTask(task.id, { status: newStatus });
+      // When uncompleting, include task details so backend can recreate the event
+      const updates: any = { status: newStatus };
+      if (newStatus === 'needsAction') {
+        // Include task details for recreation
+        updates.title = task.title;
+        updates.notes = task.notes;
+        updates.due = task.due;
+      }
+      
+      const result = await apiService.updateTask(task.id, updates);
+      
+      // If uncompleting, we get a new event ID - update the task's ID
+      if (newStatus === 'needsAction' && result.newEventId) {
+        setAllTasks(prev => prev.map(t => 
+          t.id === task.id ? { ...t, id: result.newEventId!, status: newStatus } : t
+        ));
+      }
       // Success - UI already updated
     } catch (error: any) {
       console.error('Toggle task error:', error);
@@ -568,7 +598,18 @@ export default function CalendarScreen({ navigation }: any) {
                     </Text>
                     {task.due && (
                       <Text style={styles.taskDue}>
-                        Due: {new Date(task.due).toLocaleDateString()}
+                        Due: {(() => {
+                          // Parse date string (YYYY-MM-DD) as local date to avoid timezone shifts
+                          if (task.due.includes('T')) {
+                            // Has time component - parse normally
+                            return new Date(task.due).toLocaleDateString();
+                          } else {
+                            // Date-only string - parse as local date
+                            const [year, month, day] = task.due.split('-').map(Number);
+                            const date = new Date(year, month - 1, day);
+                            return date.toLocaleDateString();
+                          }
+                        })()}
                       </Text>
                     )}
                     {task.notes && (

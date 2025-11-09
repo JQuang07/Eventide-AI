@@ -6,6 +6,7 @@ import { UrlExpander } from '../services/url-expander';
 import { CalendarService } from '../services/calendar-service';
 import { VideoFrameExtractor } from '../services/video-frame-extractor';
 import { AudioTranscriber } from '../services/audio-transcriber';
+import { QRCodeExtractor } from '../services/qr-code-extractor';
 import { CanonicalEvent } from '../types/event';
 
 const router = express.Router();
@@ -27,9 +28,26 @@ router.post('/', async (req, res, next) => {
     let sourceMetadata: any = {};
 
     // Step 1: Extract event info based on input type
+    let qrCodeUrl: string | null = null;
+    
     if (type === 'image') {
-      extracted = await geminiExtractor.extractFromImage(data);
+      // Extract QR code from image (in parallel with Gemini extraction for better performance)
+      const qrCodeExtractor = new QRCodeExtractor();
+      const [qrCodeResult, extractedResult] = await Promise.all([
+        qrCodeExtractor.extractFromBase64(data).catch(err => {
+          console.warn('[Extract] QR code extraction failed:', err.message);
+          return null;
+        }),
+        geminiExtractor.extractFromImage(data)
+      ]);
+      
+      qrCodeUrl = qrCodeResult;
+      extracted = extractedResult;
       sourceMetadata.imageUrl = data.substring(0, 100); // Store reference
+      if (qrCodeUrl) {
+        sourceMetadata.qrCodeUrl = qrCodeUrl;
+        console.log(`[Extract] QR code found in image: ${qrCodeUrl}`);
+      }
     } else if (type === 'url') {
       // Stage 1: Parse metadata/description in parallel with video extraction
       const metadataPromise = urlExpander.expand(data);
@@ -54,6 +72,30 @@ router.post('/', async (req, res, next) => {
           sourceMetadata.imageUrl = metadata.imageUrl;
           sourceMetadata.videoFramesExtracted = videoResult.frames.length;
           sourceMetadata.hasAudio = !!videoResult.audioPath;
+          
+          // Extract QR codes from video frames
+          if (videoResult.frames.length > 0) {
+            console.log(`[Extract] Attempting QR code extraction from ${Math.min(3, videoResult.frames.length)} video frames...`);
+            const qrCodeExtractor = new QRCodeExtractor();
+            // Try to extract QR code from first few frames
+            for (let i = 0; i < Math.min(3, videoResult.frames.length); i++) {
+              const frame = videoResult.frames[i];
+              console.log(`[Extract] Checking frame ${i + 1} for QR code...`);
+              const frameQrCode = await qrCodeExtractor.extractFromBase64(frame.base64).catch(err => {
+                console.warn(`[Extract] QR code extraction failed for frame ${i + 1}:`, err.message);
+                return null;
+              });
+              if (frameQrCode) {
+                qrCodeUrl = frameQrCode;
+                sourceMetadata.qrCodeUrl = qrCodeUrl;
+                console.log(`[Extract] ✓ Found QR code in video frame ${i + 1}: ${qrCodeUrl}`);
+                break; // Use first QR code found
+              }
+            }
+            if (!qrCodeUrl) {
+              console.log(`[Extract] No QR code found in video frames`);
+            }
+          }
           
           // Stage 2: Process ALL 3 sources IN PARALLEL (frames, audio, description)
           console.log('[Extract] Stage 2: Processing frames, audio, and description in parallel...');
@@ -224,29 +266,46 @@ router.post('/', async (req, res, next) => {
     // If no location extracted, location stays null (which is fine)
 
     // Step 3: Build canonical event
+    // If date is empty, use today as placeholder (user will need to edit)
+    const eventDate = extracted.date && extracted.date.trim() !== '' 
+      ? extracted.date 
+      : new Date().toISOString().split('T')[0];
+    
     // If time is provided, use dateTime format; otherwise use date format for all-day event
-    console.log(`[Extract] Building event - extracted date: ${extracted.date}, time: ${extracted.time || 'null (all-day)'}`);
+    console.log(`[Extract] Building event - extracted date: ${extracted.date || 'empty (using today as placeholder)'}, time: ${extracted.time || 'null (all-day)'}`);
     const startTime = extracted.time 
-      ? `${extracted.date}T${extracted.time}` 
-      : extracted.date; // All-day event uses just the date (YYYY-MM-DD)
+      ? `${eventDate}T${extracted.time}` 
+      : eventDate; // All-day event uses just the date (YYYY-MM-DD)
     
     // Handle endTime: if extracted.endTime exists, use it; otherwise calculate based on event type
     let endTime: string | undefined;
     if (extracted.time) {
       // Timed event: use extracted endTime if available, otherwise undefined (will default to +1h in calendar service)
       if (extracted.endTime) {
-        endTime = `${extracted.date}T${extracted.endTime}`;
+        endTime = `${eventDate}T${extracted.endTime}`;
       }
     } else {
       // All-day event: end date is next day (date-only, no time)
       // Ignore any extracted.endTime that has a time component
-      endTime = getNextDay(extracted.date);
+      endTime = getNextDay(eventDate);
       console.log(`[Extract] All-day event - start: ${startTime}, end: ${endTime} (date-only, no time)`);
     }
 
+    // Add QR code link to description if found
+    let finalDescription = extracted.description || '';
+    if (qrCodeUrl) {
+      // Format as clickable HTML link for Google Calendar
+      const qrCodeLink = `<a href="${qrCodeUrl}">${qrCodeUrl}</a>`;
+      if (finalDescription) {
+        finalDescription += `\n\n🔗 QR Code: ${qrCodeLink}`;
+      } else {
+        finalDescription = `🔗 QR Code: ${qrCodeLink}`;
+      }
+    }
+    
     const event: CanonicalEvent = {
       title: extracted.title,
-      description: extracted.description,
+      description: finalDescription,
       startTime,
       endTime,
       location,

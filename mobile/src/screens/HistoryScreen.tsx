@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Swipeable } from 'react-native-gesture-handler';
 import { ApiService } from '../services/api';
 import { theme } from '../theme';
 
@@ -77,6 +79,69 @@ export default function HistoryScreen({ navigation }: any) {
     });
   };
 
+  const handleDeleteFromHistory = (eventId: string, eventTitle: string) => {
+    Alert.alert(
+      'Remove from History',
+      `Remove "${eventTitle}" from history? (Event will remain in calendar)`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'default',
+          onPress: () => {
+            // Optimistically remove from history view
+            setEvents(prev => prev.filter(e => e.id !== eventId));
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDeleteFromCalendar = async (eventId: string, eventTitle: string) => {
+    Alert.alert(
+      'Delete Event',
+      `Are you sure you want to delete "${eventTitle}" from your calendar?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiService.deleteEvent(eventId);
+              // Remove from history view
+              setEvents(prev => prev.filter(e => e.id !== eventId));
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to delete event');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderRightActions = (event: HistoryEvent) => {
+    return (
+      <TouchableOpacity
+        style={styles.removeFromHistoryAction}
+        onPress={() => handleDeleteFromHistory(event.id, event.title)}
+      >
+        <Text style={styles.removeFromHistoryActionText}>Remove</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderLeftActions = (event: HistoryEvent) => {
+    return (
+      <TouchableOpacity
+        style={styles.deleteFromCalendarAction}
+        onPress={() => handleDeleteFromCalendar(event.id, event.title)}
+      >
+        <Text style={styles.deleteFromCalendarActionText}>Delete</Text>
+      </TouchableOpacity>
+    );
+  };
+
   if (loading && !refreshing && events.length === 0) {
     return (
       <View style={[styles.container, { paddingTop: 0 }]}>
@@ -114,46 +179,54 @@ export default function HistoryScreen({ navigation }: any) {
           </View>
         ) : (
           events.map((event) => (
-            <TouchableOpacity
+            <Swipeable
               key={event.id}
-              style={[styles.eventCard, isPastEvent(event.startTime) && styles.eventCardPast]}
-              onPress={() => handleEventPress(event)}
+              renderRightActions={() => renderRightActions(event)}
+              renderLeftActions={() => renderLeftActions(event)}
             >
-              <View style={styles.eventHeader}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <View style={styles.sourceBadge}>
-                  <Text style={styles.sourceText}>
-                    {event.source === 'flyer' ? '📷' : event.source === 'url' ? '🔗' : '📝'}
+              <View style={styles.swipeableContent}>
+                <TouchableOpacity
+                  style={[styles.eventCard, isPastEvent(event.startTime) && styles.eventCardPast]}
+                  onPress={() => handleEventPress(event)}
+                  activeOpacity={0.8}
+                >
+                <View style={styles.eventHeader}>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceText}>
+                      {event.source === 'flyer' ? '📷' : event.source === 'url' ? '🔗' : '📝'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.eventTime}>
+                  {event.isAllDay 
+                    ? (() => {
+                        // Parse date-only strings in local timezone to avoid timezone shifts
+                        const dateStr = event.startTime;
+                        if (!dateStr.includes('T')) {
+                          const [year, month, day] = dateStr.split('-').map(Number);
+                          return new Date(year, month - 1, day).toLocaleDateString();
+                        }
+                        return new Date(dateStr).toLocaleDateString();
+                      })()
+                    : formatDate(event.startTime)}
+                </Text>
+                {event.location && (
+                  <Text style={styles.eventLocation}>📍 {event.location}</Text>
+                )}
+                {event.description && (
+                  <Text style={styles.eventDescription} numberOfLines={2}>
+                    {event.description}
+                  </Text>
+                )}
+                <View style={styles.eventFooter}>
+                  <Text style={styles.eventDate}>
+                    Added {new Date(event.createdAt).toLocaleDateString()}
                   </Text>
                 </View>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.eventTime}>
-                {event.isAllDay 
-                  ? (() => {
-                      // Parse date-only strings in local timezone to avoid timezone shifts
-                      const dateStr = event.startTime;
-                      if (!dateStr.includes('T')) {
-                        const [year, month, day] = dateStr.split('-').map(Number);
-                        return new Date(year, month - 1, day).toLocaleDateString();
-                      }
-                      return new Date(dateStr).toLocaleDateString();
-                    })()
-                  : formatDate(event.startTime)}
-              </Text>
-              {event.location && (
-                <Text style={styles.eventLocation}>📍 {event.location}</Text>
-              )}
-              {event.description && (
-                <Text style={styles.eventDescription} numberOfLines={2}>
-                  {event.description}
-                </Text>
-              )}
-              <View style={styles.eventFooter}>
-                <Text style={styles.eventDate}>
-                  Added {new Date(event.createdAt).toLocaleDateString()}
-                </Text>
-              </View>
-            </TouchableOpacity>
+            </Swipeable>
           ))
         )}
       </ScrollView>
@@ -216,15 +289,20 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.base,
     color: theme.colors.textSecondary,
   },
+  swipeableContent: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    marginBottom: theme.spacing.md,
+    overflow: 'hidden',
+  },
   eventCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
     ...theme.shadows.sm,
   },
   eventCardPast: {
-    opacity: 0.8,
+    opacity: 0.7,
   },
   eventHeader: {
     flexDirection: 'row',
@@ -268,6 +346,34 @@ const styles = StyleSheet.create({
   eventDate: {
     fontSize: theme.typography.sizes.xs,
     color: theme.colors.textLight,
+  },
+  removeFromHistoryAction: {
+    backgroundColor: theme.colors.warning,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.borderRadius.lg,
+    marginBottom: theme.spacing.md,
+    minWidth: 100,
+  },
+  removeFromHistoryActionText: {
+    color: theme.colors.textOnGradient,
+    fontSize: theme.typography.sizes.base,
+    fontWeight: theme.typography.weights.semibold,
+  },
+  deleteFromCalendarAction: {
+    backgroundColor: theme.colors.error,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.borderRadius.lg,
+    marginBottom: theme.spacing.md,
+    minWidth: 100,
+  },
+  deleteFromCalendarActionText: {
+    color: theme.colors.textOnGradient,
+    fontSize: theme.typography.sizes.base,
+    fontWeight: theme.typography.weights.semibold,
   },
 });
 

@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ApiService } from '../services/api';
 import { theme } from '../theme';
 import { CanonicalEvent } from '../types/event';
+import { ClickableText } from '../components/ClickableText';
 
 const apiService = new ApiService();
 
@@ -185,7 +186,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             </Text>
           )}
           {event.description && (
-            <Text style={styles.eventDescription}>{event.description}</Text>
+            <ClickableText text={event.description} style={styles.eventDescription} />
           )}
         </View>
       </View>

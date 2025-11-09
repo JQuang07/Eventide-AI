@@ -217,6 +217,12 @@ export class CalendarService {
 
       if (response.data.items) {
         for (const event of response.data.items) {
+          // Skip events that are tasks (they should only appear in tasks list)
+          const isTask = event.extendedProperties?.private?.eventideTask === 'true';
+          if (isTask) {
+            continue;
+          }
+          
           const isAllDay = !!event.start?.date;
           const startTime = event.start?.dateTime || event.start?.date || '';
           const endTime = event.end?.dateTime || event.end?.date;
@@ -292,6 +298,12 @@ export class CalendarService {
 
       if (response.data.items) {
         for (const event of response.data.items) {
+          // Skip events that are tasks (they should only appear in tasks list)
+          const isTask = event.extendedProperties?.private?.eventideTask === 'true';
+          if (isTask) {
+            continue;
+          }
+          
           // Include events created by Eventide
           // For backward compatibility, also check if event has source metadata in description
           const isEventideEvent = event.extendedProperties?.private?.eventideCreated === 'true';
