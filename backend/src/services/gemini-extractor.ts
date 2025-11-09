@@ -19,6 +19,8 @@ export interface ExtractedEvent {
   time?: string; // ISO8601 time (optional for all-day events)
   endTime?: string; // ISO8601 time (optional end time)
   location?: string;
+  eventType?: string; // e.g., "movie", "concert", "restaurant", "theater", "sports"
+  venueType?: string; // e.g., "movie theater", "concert hall", "restaurant", "stadium"
 }
 
 export class GeminiExtractor {
@@ -31,13 +33,32 @@ export class GeminiExtractor {
   }
 
   async extractFromImage(imageBase64: string): Promise<ExtractedEvent> {
-    const prompt = `Extract event information from this image. Return a JSON object with:
-- title (string, required): Event title
-- description (string, optional): Brief event summary in 25 words or less. Summarize key details about the event.
-- date (ISO8601 date, required): Event date (e.g., "2024-03-15")
+    const prompt = `Extract event information from this image. The user has found this image (flyer, poster, event page, etc.) and wants to add it to their calendar. Return a JSON object with:
+- title (string, required): Event title that reflects the context and purpose. Look at ALL information visible: text, images, dates, times, any details. Format the title to reflect what's happening:
+  * If you see a restaurant with a date/time → "Dinner at [Restaurant]" or "Lunch at [Restaurant]"
+  * If you see a movie poster with a release date → "Watch [Movie Title]"
+  * If you see a restaurant menu or review → "[Restaurant Name]" or "Try [Restaurant Name]"
+  * If you see event details, use those details to inform the title
+  * Be flexible and reason from context clues present in the image
+  * IMPORTANT: Reason about what the user likely wants to do with this information (they found it and want to add it to their calendar), but show it naturally through the title format - don't mention "user" or "intent" in the title
+- description (string, optional): Brief event summary in 25 words or less. Look at what information is actually present:
+  * For restaurants: Describe cuisine type, ambiance, specialties, or notable features based on what's shown
+  * For movies: Describe genre, plot summary, key themes, notable actors/directors, or release info if visible
+  * For other content: Extract and describe the relevant information that would be useful
+  * Focus on what's actually visible in the image
+  * CRITICAL: Do NOT mention "user", "might want", "probably wants", "intent", or any references to the user's intentions. Just describe the event/place/thing naturally. Show the purpose through the description content, don't tell it explicitly.
+- date (ISO8601 date, required): Event date (e.g., "2024-03-15"). For movies: look for release dates, "Coming Soon", "In Theaters [date]", etc.
 - time (ISO8601 time, optional): Event start time (e.g., "20:00:00" or "08:00:00"). If no specific time is mentioned, omit this field or set to null.
 - endTime (ISO8601 time, optional): Event end time (e.g., "22:00:00" or "10:00:00"). Look for phrases like "until", "ends at", "finishes at", or time ranges like "8pm-10pm". If no end time is mentioned, omit this field.
-- location (string, optional): Event location/venue
+- location (string, optional): Event location/venue. CRITICAL: Extract ALL location information visible:
+  * If you see a FULL ADDRESS (street address, city, state, zip) → extract the complete address as the location
+  * If you see a street address → extract it
+  * If you see a venue/business name with address → extract both: "[Name], [Address]"
+  * If you only see a venue/business name → extract just the name
+  * Look for: business names, restaurant names, venue names, street addresses, city names, any location identifiers
+  * Extract the most complete location information available - addresses are preferred over just names
+- eventType (string, optional): Type of event (e.g., "movie", "movie trailer", "film", "concert", "sports", "theater", "restaurant", "festival", "conference", "workshop"). If you see movie-related content, set this to "movie".
+- venueType (string, optional): Type of venue needed (e.g., "movie theater", "cinema", "concert hall", "restaurant", "stadium", "theater", "conference center", "workshop space"). CRITICAL REASONING: Think about where someone would physically go to attend this event. For movies/films/trailers, this MUST be "movie theater" or "cinema". For concerts, it should be "concert hall" or "venue". For sports, it should be "stadium" or "arena". Always set this field based on the event type, even if no location is explicitly mentioned.
 
 CRITICAL DATE RESOLUTION:
 - Today's date is: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })})
@@ -80,13 +101,32 @@ Return ONLY valid JSON, no markdown formatting.`;
   }
 
   async extractFromText(text: string): Promise<ExtractedEvent> {
-    const prompt = `Extract event information from this text. Return a JSON object with:
-- title (string, required): Event title
-- description (string, optional): Brief event summary in 25 words or less. Summarize key details about the event.
-- date (ISO8601 date, required): Event date (e.g., "2024-03-15")
+    const prompt = `Extract event information from this text. The user has found this text (event page, description, etc.) and wants to add it to their calendar. Return a JSON object with:
+- title (string, required): Event title that reflects the context and purpose. Look at ALL information in the text: dates, times, any details. Format the title to reflect what's happening:
+  * If you see a restaurant with a date/time → "Dinner at [Restaurant]" or "Lunch at [Restaurant]"
+  * If you see a movie with a release date → "Watch [Movie Title]"
+  * If you see a restaurant menu or review → "[Restaurant Name]" or "Try [Restaurant Name]"
+  * If you see event details, use those details to inform the title
+  * Be flexible and reason from context clues present in the text
+  * IMPORTANT: Reason about what the user likely wants to do with this information (they found it and want to add it to their calendar), but show it naturally through the title format - don't mention "user" or "intent" in the title
+- description (string, optional): Brief event summary in 25 words or less. Look at what information is actually present:
+  * For restaurants: Describe cuisine type, ambiance, specialties, or notable features based on what's mentioned
+  * For movies: Describe genre, plot summary, key themes, notable actors/directors, or release info if mentioned
+  * For other content: Extract and describe the relevant information that would be useful
+  * Focus on what's actually present in the text
+  * CRITICAL: Do NOT mention "user", "might want", "probably wants", "intent", or any references to the user's intentions. Just describe the event/place/thing naturally. Show the purpose through the description content, don't tell it explicitly.
+- date (ISO8601 date, required): Event date (e.g., "2024-03-15"). For movies: look for release dates, "Coming Soon", "In Theaters [date]", etc.
 - time (ISO8601 time, optional): Event start time (e.g., "20:00:00" or "08:00:00"). If no specific time is mentioned, omit this field or set to null.
 - endTime (ISO8601 time, optional): Event end time (e.g., "22:00:00" or "10:00:00"). Look for phrases like "until", "ends at", "finishes at", "from X to Y", or time ranges like "8pm-10pm". If no end time is mentioned, omit this field.
-- location (string, optional): Event location/venue
+- location (string, optional): Event location/venue. CRITICAL: Extract ALL location information present:
+  * If you see a FULL ADDRESS (street address, city, state, zip) → extract the complete address as the location
+  * If you see a street address → extract it
+  * If you see a venue/business name with address → extract both: "[Name], [Address]"
+  * If you only see a venue/business name → extract just the name
+  * Look for: business names, restaurant names, venue names, street addresses, city names, any location identifiers
+  * Extract the most complete location information available - addresses are preferred over just names
+- eventType (string, optional): Type of event (e.g., "movie", "movie trailer", "film", "concert", "sports", "theater", "restaurant", "festival", "conference", "workshop"). If you see movie-related content, set this to "movie".
+- venueType (string, optional): Type of venue needed (e.g., "movie theater", "cinema", "concert hall", "restaurant", "stadium", "theater", "conference center", "workshop space"). CRITICAL REASONING: Think about where someone would physically go to attend this event. For movies/films/trailers, this MUST be "movie theater" or "cinema". For concerts, it should be "concert hall" or "venue". For sports, it should be "stadium" or "arena". Always set this field based on the event type, even if no location is explicitly mentioned.
 
 CRITICAL DATE RESOLUTION:
 - Today's date is: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })})
@@ -140,17 +180,38 @@ ${text}`;
       // Analyze each frame
       const analyses = await Promise.all(
         frames.map(async (frame, index) => {
-          const prompt = `Analyze this video frame (frame ${index + 1} of ${frames.length}) and extract ALL event information you can see. Look carefully at ALL text, graphics, and visual elements.
+          const prompt = `Analyze this video frame (frame ${index + 1} of ${frames.length}) and extract ALL event information you can see. The user has found this video (trailer, event video, etc.) and wants to add it to their calendar. Look carefully at ALL text, graphics, and visual elements.
 
 EXTRACT:
-- Event title or name (look for large text, headlines, event names - this is CRITICAL)
-- Date (look for dates in any format: "Dec 30", "12/30/2025", "December 30, 2025", etc.) - ONLY if clearly visible or can be reasonably inferred from contextual clues (e.g., "tomorrow", "next Friday", "Nov 18"). DO NOT default to today's date if no date is visible. If no date is visible or inferable, set to null.
+- Event title or name (look for large text, headlines, event names, movie titles - this is CRITICAL):
+  * Look at ALL context clues: text, images, dates, times, any information visible
+  * Format the title to reflect what's happening based on context clues. For example:
+    - If you see a restaurant with a date/time → "Dinner at [Restaurant]" or "Lunch at [Restaurant]"
+    - If you see a movie poster with a release date → "Watch [Movie Title]"
+    - If you see a restaurant menu or review → "[Restaurant Name]" or "Try [Restaurant Name]"
+    - If you see event details, use those details to inform the title
+  * Be flexible and reason from context clues present in the frame
+  * IMPORTANT: Reason about what the user likely wants to do with this information (they found it and want to add it to their calendar), but show it naturally through the title format
+- Date (look for dates in any format: "Dec 30", "12/30/2025", "December 30, 2025", "Coming Soon", "In Theaters", release dates, etc.) - ONLY if clearly visible or can be reasonably inferred from contextual clues (e.g., "tomorrow", "next Friday", "Nov 18", "Coming Soon", "In Theaters [date]"). DO NOT default to today's date if no date is visible. If no date is visible or inferable, set to null.
 - Start time (only if a specific time is visible like "8pm", "20:00", "8:00 PM")
 - End time (look for: "until", "ends at", time ranges like "8pm-10pm", "from 8pm to 10pm")
-- Location (venue name, address, city, place name)
-- Brief summary (25 words max) of key event details
-- ALL text visible in the frame (read everything carefully)
-- Event type (concert, conference, workshop, festival, etc.)
+- Location (CRITICAL: Extract ALL location information visible):
+  * If you see a FULL ADDRESS (street address, city, state, zip) → extract the complete address as the location
+  * If you see a street address → extract it
+  * If you see a venue/business name with address → extract both: "[Name], [Address]"
+  * If you only see a venue/business name → extract just the name
+  * Look for: business names, restaurant names, venue names, street addresses, city names, any location identifiers
+  * Extract the most complete location information available - addresses are preferred over just names
+- Brief summary (25 words max):
+  * Look at what information is actually present in the frame
+  * For restaurants: Describe cuisine type, ambiance, specialties, or notable features based on what's shown
+  * For movies: Describe genre, plot summary, key themes, notable actors/directors, or release info if visible
+  * For other content: Extract and describe the relevant information that would be useful
+  * Focus on what's actually visible in the frame
+  * CRITICAL: Do NOT mention "user", "might want", "probably wants", "intent", or any references to the user's intentions. Just describe the event/place/thing naturally. Show the purpose through the description content, don't tell it explicitly.
+- ALL text visible in the frame (read everything carefully - movie titles, release dates, "In Theaters", "Coming Soon", etc.)
+- Event type (e.g., "movie", "movie trailer", "film", "concert", "sports", "theater", "restaurant", "festival", "conference", "workshop"). If you see a movie trailer, movie poster, or film-related content, set this to "movie".
+- Venue type (e.g., "movie theater", "cinema", "concert hall", "restaurant", "stadium", "theater", "conference center", "workshop space") - CRITICAL REASONING: Think about where someone would physically go to attend this event. For movies/films/trailers, this MUST be "movie theater" or "cinema". For concerts, it should be "concert hall" or "venue". For sports, it should be "stadium" or "arena". Always set this field based on the event type, even if no location is explicitly mentioned.
 
 CRITICAL INSTRUCTIONS:
 - The "title" field is REQUIRED if you see ANY event-related text. Extract the main event name/title even if partial.
@@ -178,8 +239,10 @@ Format your response as JSON:
   "date": "date if visible or null (format: YYYY-MM-DD, DO NOT guess)",
   "time": "start time if visible or null (format: HH:MM:SS, only if specific time shown)",
   "endTime": "end time if visible or null (format: HH:MM:SS, NOT a date - only if end time or range shown)",
-  "location": "location if visible or null",
+  "location": "location if explicitly visible or null",
   "description": "brief summary (25 words max) if visible or null",
+  "eventType": "event type if identifiable (e.g., 'movie', 'concert', 'sports') or null",
+  "venueType": "venue type needed (e.g., 'movie theater', 'cinema', 'concert hall', 'restaurant') or null. CRITICAL: For movies, this MUST be 'movie theater' or 'cinema'. Think: where would someone go to attend this event?",
   "text": "ALL text visible in the frame",
   "hasEventInfo": true or false
 }`;
@@ -303,13 +366,17 @@ Format your response as JSON:
       time: null,
       endTime: null,
       location: null,
-      description: null
+      description: null,
+      eventType: null,
+      venueType: null
     };
 
     for (const analysis of validAnalyses) {
       if (analysis.title && !combined.title) combined.title = analysis.title;
       if (analysis.date && !combined.date) combined.date = analysis.date;
       if (analysis.time && !combined.time) combined.time = analysis.time;
+      if (analysis.eventType && !combined.eventType) combined.eventType = analysis.eventType;
+      if (analysis.venueType && !combined.venueType) combined.venueType = analysis.venueType;
       if (analysis.endTime && !combined.endTime) combined.endTime = analysis.endTime;
       if (analysis.location && !combined.location) combined.location = analysis.location;
       if (analysis.description && !combined.description) {
@@ -519,7 +586,9 @@ Format your response as JSON:
       date: finalDate,
       time: extracted.time, // Can be undefined for all-day events
       endTime: extracted.endTime, // Already normalized above
-      location: extracted.location?.trim()
+      location: extracted.location?.trim(),
+      eventType: extracted.eventType?.trim() || undefined,
+      venueType: extracted.venueType?.trim() || undefined
     };
   }
 }

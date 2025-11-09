@@ -96,6 +96,21 @@ export class CalendarService {
       // Check if this is an all-day event (startTime is just a date, no time component)
       const isAllDay = !event.startTime.includes('T');
       
+      // Format location: include both name and address if available for better Google Calendar linking
+      let locationString = '';
+      if (event.location) {
+        if (event.location.name && event.location.address) {
+          // Both name and address available - format as "Name, Address" for best Google Calendar linking
+          locationString = `${event.location.name}, ${event.location.address}`;
+        } else if (event.location.address) {
+          // Only address available
+          locationString = event.location.address;
+        } else if (event.location.name) {
+          // Only name available
+          locationString = event.location.name;
+        }
+      }
+      
       let googleEvent: calendar_v3.Schema$Event;
 
       if (isAllDay) {
@@ -114,14 +129,15 @@ export class CalendarService {
           end: {
             date: endDate
           },
-          location: event.location?.address || event.location?.name || '',
+          location: locationString,
           reminders: {
             useDefault: true
           },
           extendedProperties: {
             private: {
               eventideSource: event.source || 'unknown',
-              eventideCreated: 'true'
+              eventideCreated: 'true',
+              ...(event.sourceMetadata ? { eventideSourceMetadata: JSON.stringify(event.sourceMetadata) } : {})
             }
           }
         };
@@ -143,14 +159,15 @@ export class CalendarService {
             dateTime: endDateTime.toISOString(),
             timeZone: event.timezone
           },
-          location: event.location?.address || event.location?.name || '',
+          location: locationString,
           reminders: {
             useDefault: true
           },
           extendedProperties: {
             private: {
               eventideSource: event.source || 'unknown',
-              eventideCreated: 'true'
+              eventideCreated: 'true',
+              ...(event.sourceMetadata ? { eventideSourceMetadata: JSON.stringify(event.sourceMetadata) } : {})
             }
           }
         };

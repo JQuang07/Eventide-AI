@@ -23,6 +23,10 @@ export interface CanonicalEvent {
 export interface ExtractionRequest {
   type: 'image' | 'url' | 'text';
   data: string; // base64 image, URL string, or text content
+  userLocation?: {
+    lat: number;
+    lng: number;
+  };
 }
 
 export interface ExtractionResponse {

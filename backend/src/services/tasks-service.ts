@@ -100,16 +100,24 @@ Event Details:
 Generate 2-4 creative, contextually relevant task suggestions for this event. Be specific and actionable.
 
 IMPORTANT RULES:
-1. Task titles MUST be SHORT and CONCISE - aim for 2-4 words maximum (e.g., "Buy tickets", "Charge phone", "Review agenda", "Confirm reservation"). Avoid long titles like "Plan travel route to venue" - use "Plan route" instead.
+1. Task titles MUST be SHORT and CONCISE - aim for 2-4 words maximum (e.g., "Buy tickets", "Charge phone", "Review agenda", "Reserve table"). Avoid long titles like "Plan travel route to venue" - use "Plan route" instead.
 2. ONLY suggest location/travel-related tasks (like "Plan route", "Check parking", "Get directions") if the location HAS AN ADDRESS (hasAddress: Yes). If hasAddress is No, DO NOT suggest any travel/location tasks.
-3. Make suggestions creative and varied - avoid generic tasks like "Plan travel route" unless there's actually an address to navigate to.
-4. Consider the event type, description, and context to suggest relevant tasks.
-5. Examples of good SHORT suggestions:
+3. REASON FROM CONTEXT in the event details:
+   - Look at the title, description, date, time, and location to understand what's happening
+   - Consider different scenarios based on what's present. For example:
+     * If title is "Dinner at [Restaurant]" with a date/time → suggest "Reserve table" or "Confirm reservation"
+     * If title is "Watch [Movie]" with a release date → suggest "Buy tickets" or "Check showtimes"
+     * If title is just "[Restaurant Name]" → suggest "Check menu" or "Read reviews"
+     * If it's an event with tickets mentioned → suggest "Buy tickets"
+   - Be flexible and reason from what's actually present, not hardcoded assumptions
+4. Make suggestions creative and varied - avoid generic tasks unless they're truly relevant.
+5. Examples of good SHORT suggestions (reason from context):
+   - For restaurant reservations: "Reserve table", "Confirm reservation", "Check menu", "Review dietary", "Plan route" (only if address exists)
+   - For movie watching: "Buy tickets", "Check showtimes", "Find theater", "Charge phone", "Plan route" (only if address exists)
+   - For restaurant research: "Check menu", "Read reviews", "Check hours"
    - For concerts: "Charge phone", "Check setlist", "Review parking" (only if address exists)
    - For meetings: "Review agenda", "Prepare notes", "Test setup"
-   - For dinners: "Check dietary", "Confirm reservation"
    - For workshops: "Bring notebook", "Review prep", "Download files"
-   - For events with tickets: "Buy tickets", "Print tickets", "Add to wallet"
 6. Avoid suggesting tasks that don't make sense (e.g., "Plan travel route" for online events or events without addresses).
 7. Make each suggestion unique and specific to this event.
 8. Keep descriptions brief too - 1 short sentence maximum.
@@ -191,17 +199,17 @@ Return ONLY the JSON array, no markdown, no explanation.`;
     const oneDayBeforeStr = `${year}-${month}-${day}`;
 
     // Check if location has an actual address
-    const hasAddress = event.location && (
+    const hasAddress = !!(event.location && (
       event.location.address || 
       (event.location.name && event.location.name.includes(',')) ||
       (event.location.address && event.location.address.length > 10)
-    );
+    ));
 
     // Location-based suggestions - ONLY if address exists
-    if (hasAddress) {
+    if (hasAddress && event.location) {
       suggestions.push({
         title: 'Plan route',
-        description: `Get directions to ${event.location.name || event.location.address}`,
+        description: `Get directions to ${event.location.name || event.location.address || 'location'}`,
         dueDate: oneDayBeforeStr,
         priority: 'medium'
       });
@@ -219,6 +227,9 @@ Return ONLY the JSON array, no markdown, no explanation.`;
         priority: 'high'
       });
     }
+    
+    // Remove duplicate "Buy tickets" if already added for movies
+    // (This will be handled by the deduplication logic below)
 
     if (descLower.includes('rsvp') || descLower.includes('register') || descLower.includes('confirm') || descLower.includes('sign up')) {
       suggestions.push({
@@ -256,12 +267,86 @@ Return ONLY the JSON array, no markdown, no explanation.`;
       });
     }
 
-    if (titleLower.includes('dinner') || titleLower.includes('lunch') || titleLower.includes('restaurant') || titleLower.includes('brunch')) {
+    // Restaurant/dining events - reason from context, not hardcoded assumptions
+    // Check if it looks like a reservation (has date/time) vs research (just restaurant name)
+    const hasDateTime = event.startTime.includes('T') || (event.startTime && event.startTime.length > 10);
+    if (titleLower.includes('dinner at') || titleLower.includes('lunch at') || titleLower.includes('brunch at') || 
+        (titleLower.includes('restaurant') && hasDateTime) || 
+        (descLower.includes('restaurant') && hasDateTime) || 
+        (descLower.includes('dining') && hasDateTime)) {
+      // Looks like a reservation - suggest reservation-related tasks
       suggestions.push({
-        title: 'Confirm reservation',
-        description: 'Verify booking',
+        title: 'Reserve table',
+        description: 'Make or confirm restaurant reservation',
         dueDate: oneDayBeforeStr,
         priority: 'high'
+      });
+      
+      if (hasAddress && event.location) {
+        suggestions.push({
+          title: 'Plan route',
+          description: `Get directions to ${event.location.name || event.location.address || 'restaurant'}`,
+          dueDate: oneDayBeforeStr,
+          priority: 'medium'
+        });
+      }
+      
+      suggestions.push({
+        title: 'Check menu',
+        description: 'Review restaurant menu and options',
+        dueDate: oneDayBeforeStr,
+        priority: 'low'
+      });
+    } else if (titleLower.includes('restaurant') || descLower.includes('restaurant') || descLower.includes('dining')) {
+      // Just restaurant info, might be research - suggest research tasks
+      suggestions.push({
+        title: 'Check menu',
+        description: 'Review restaurant menu',
+        dueDate: oneDayBeforeStr,
+        priority: 'medium'
+      });
+      
+      suggestions.push({
+        title: 'Read reviews',
+        description: 'Check restaurant reviews',
+        dueDate: oneDayBeforeStr,
+        priority: 'low'
+      });
+    }
+    
+    // Movie events - reason from context
+    if (titleLower.startsWith('watch ') || (titleLower.includes('movie') && hasDateTime) || 
+        (descLower.includes('movie') && hasDateTime) || (descLower.includes('film') && hasDateTime)) {
+      // Looks like they want to watch it - suggest ticket/showtime tasks
+      suggestions.push({
+        title: 'Buy tickets',
+        description: 'Purchase movie tickets',
+        dueDate: oneDayBeforeStr,
+        priority: 'high'
+      });
+      
+      suggestions.push({
+        title: 'Check showtimes',
+        description: 'Find available movie showtimes',
+        dueDate: oneDayBeforeStr,
+        priority: 'high'
+      });
+      
+      if (hasAddress && event.location) {
+        suggestions.push({
+          title: 'Find theater',
+          description: 'Locate movie theater location',
+          dueDate: oneDayBeforeStr,
+          priority: 'medium'
+        });
+      }
+    } else if (titleLower.includes('movie') || descLower.includes('movie') || descLower.includes('film')) {
+      // Just movie info, might be research - suggest research tasks
+      suggestions.push({
+        title: 'Read reviews',
+        description: 'Check movie reviews',
+        dueDate: oneDayBeforeStr,
+        priority: 'low'
       });
     }
 
