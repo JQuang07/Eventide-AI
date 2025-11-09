@@ -2,12 +2,87 @@ import 'react-native-gesture-handler';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator, CardStyleInterpolators, TransitionSpecs } from '@react-navigation/stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SplashScreen from './src/screens/SplashScreen';
 import HomeScreen from './src/screens/HomeScreen';
+import CalendarScreen from './src/screens/CalendarScreen';
+import HistoryScreen from './src/screens/HistoryScreen';
 import ReviewScreen from './src/screens/ReviewScreen';
 import SuccessScreen from './src/screens/SuccessScreen';
+import EventDetailScreen from './src/screens/EventDetailScreen';
+import ProcessingScreen from './src/screens/ProcessingScreen';
+import { theme } from './src/theme';
 
 const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
+
+function MainTabs() {
+  const insets = useSafeAreaInsets();
+  
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: theme.colors.backgroundLight,
+        },
+        headerTintColor: theme.colors.text,
+        headerTitleStyle: {
+          fontWeight: '600',
+        },
+        tabBarStyle: {
+          backgroundColor: theme.colors.surface,
+          borderTopColor: theme.colors.border,
+          borderTopWidth: 1,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 8,
+          height: 60 + Math.max(insets.bottom - 8, 0),
+        },
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.textSecondary,
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Add"
+        component={HomeScreen}
+        options={{
+          title: 'Eventide AI',
+          tabBarLabel: 'Add',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>➕</Text>
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Calendar"
+        component={CalendarScreen}
+        options={{
+          headerShown: false,
+          tabBarLabel: 'Calendar',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>📅</Text>
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="History"
+        component={HistoryScreen}
+        options={{
+          headerShown: false,
+          tabBarLabel: 'History',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>📜</Text>
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
 
 export default function App() {
   return (
@@ -15,7 +90,7 @@ export default function App() {
       <Stack.Navigator 
         initialRouteName="Splash"
         screenOptions={{
-          headerShown: false, // Hide header for splash
+          headerShown: false,
         }}
       >
         <Stack.Screen 
@@ -24,18 +99,17 @@ export default function App() {
           options={{ headerShown: false }}
         />
         <Stack.Screen 
-          name="Home" 
-          component={HomeScreen} 
+          name="MainTabs" 
+          component={MainTabs}
           options={{ 
-            title: 'Eventide AI',
-            headerStyle: {
-              backgroundColor: '#FFF8F5',
+            headerShown: false,
+            cardStyleInterpolator: ({ current }) => {
+              return {
+                cardStyle: {
+                  opacity: current.progress,
+                },
+              };
             },
-            headerTintColor: '#2C2C2C',
-            headerTitleStyle: {
-              fontWeight: '600',
-            },
-            cardStyleInterpolator: CardStyleInterpolators.forFadeFromBottomAndroid,
             transitionSpec: {
               open: {
                 animation: 'timing',
@@ -53,14 +127,21 @@ export default function App() {
           }}
         />
         <Stack.Screen 
+          name="Processing" 
+          component={ProcessingScreen}
+          options={{ 
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen 
           name="Review" 
           component={ReviewScreen}
           options={{ 
             title: 'Review Event',
             headerStyle: {
-              backgroundColor: '#FFF8F5',
+              backgroundColor: theme.colors.backgroundLight,
             },
-            headerTintColor: '#2C2C2C',
+            headerTintColor: theme.colors.text,
             headerTitleStyle: {
               fontWeight: '600',
             },
@@ -73,9 +154,23 @@ export default function App() {
             headerLeft: null, 
             title: 'Success',
             headerStyle: {
-              backgroundColor: '#FFF8F5',
+              backgroundColor: theme.colors.backgroundLight,
             },
-            headerTintColor: '#2C2C2C',
+            headerTintColor: theme.colors.text,
+            headerTitleStyle: {
+              fontWeight: '600',
+            },
+          }}
+        />
+        <Stack.Screen 
+          name="EventDetail" 
+          component={EventDetailScreen}
+          options={{ 
+            title: 'Event Details',
+            headerStyle: {
+              backgroundColor: theme.colors.backgroundLight,
+            },
+            headerTintColor: theme.colors.text,
             headerTitleStyle: {
               fontWeight: '600',
             },

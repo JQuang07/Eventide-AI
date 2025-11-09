@@ -117,6 +117,12 @@ export class CalendarService {
           location: event.location?.address || event.location?.name || '',
           reminders: {
             useDefault: true
+          },
+          extendedProperties: {
+            private: {
+              eventideSource: event.source || 'unknown',
+              eventideCreated: 'true'
+            }
           }
         };
       } else {
@@ -140,6 +146,12 @@ export class CalendarService {
           location: event.location?.address || event.location?.name || '',
           reminders: {
             useDefault: true
+          },
+          extendedProperties: {
+            private: {
+              eventideSource: event.source || 'unknown',
+              eventideCreated: 'true'
+            }
           }
         };
       }
@@ -166,6 +178,220 @@ export class CalendarService {
     const date = new Date(dateString);
     date.setDate(date.getDate() + 1);
     return date.toISOString().split('T')[0];
+  }
+
+  /**
+   * Get upcoming calendar events
+   */
+  async getEvents(
+    calendarId: string,
+    maxResults: number = 50
+  ): Promise<Array<{
+    id: string;
+    title: string;
+    startTime: string;
+    endTime?: string;
+    location?: string;
+    description?: string;
+    isAllDay: boolean;
+  }>> {
+    try {
+      const now = new Date();
+      const response = await this.calendar.events.list({
+        calendarId,
+        timeMin: now.toISOString(),
+        maxResults,
+        singleEvents: true,
+        orderBy: 'startTime'
+      });
+
+      const events: Array<{
+        id: string;
+        title: string;
+        startTime: string;
+        endTime?: string;
+        location?: string;
+        description?: string;
+        isAllDay: boolean;
+      }> = [];
+
+      if (response.data.items) {
+        for (const event of response.data.items) {
+          const isAllDay = !!event.start?.date;
+          const startTime = event.start?.dateTime || event.start?.date || '';
+          const endTime = event.end?.dateTime || event.end?.date;
+          // Check if event was created by Eventide
+          const isEventideEvent = event.extendedProperties?.private?.eventideCreated === 'true';
+          const eventideSource = event.extendedProperties?.private?.eventideSource;
+
+          events.push({
+            id: event.id || '',
+            title: event.summary || 'Untitled',
+            startTime,
+            endTime,
+            location: event.location,
+            description: event.description,
+            isAllDay,
+            isEventideEvent,
+            eventideSource
+          });
+        }
+      }
+
+      return events;
+    } catch (error: any) {
+      console.error('Get events error:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Get all events created by Eventide (history)
+   */
+  async getHistory(
+    calendarId: string,
+    maxResults: number = 500
+  ): Promise<Array<{
+    id: string;
+    title: string;
+    startTime: string;
+    endTime?: string;
+    location?: string;
+    description?: string;
+    isAllDay: boolean;
+    createdAt: string;
+    eventideSource?: string;
+  }>> {
+    try {
+      const now = new Date();
+      // Get events from the past year (both past and future)
+      const oneYearAgo = new Date(now);
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      const oneYearFromNow = new Date(now);
+      oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+
+      const response = await this.calendar.events.list({
+        calendarId,
+        timeMin: oneYearAgo.toISOString(),
+        timeMax: oneYearFromNow.toISOString(),
+        maxResults,
+        singleEvents: true,
+        orderBy: 'startTime'
+      });
+
+      const events: Array<{
+        id: string;
+        title: string;
+        startTime: string;
+        endTime?: string;
+        location?: string;
+        description?: string;
+        isAllDay: boolean;
+        createdAt: string;
+      }> = [];
+
+      if (response.data.items) {
+        for (const event of response.data.items) {
+          // Include events created by Eventide
+          // For backward compatibility, also check if event has source metadata in description
+          const isEventideEvent = event.extendedProperties?.private?.eventideCreated === 'true';
+          const hasEventideMetadata = event.description?.includes('Eventide') || 
+                                     event.description?.includes('eventide') ||
+                                     event.extendedProperties?.private?.eventideSource;
+          
+          // Include if explicitly marked OR if it has Eventide metadata (for existing events)
+          if (!isEventideEvent && !hasEventideMetadata) continue;
+
+          const isAllDay = !!event.start?.date;
+          const startTime = event.start?.dateTime || event.start?.date || '';
+          const endTime = event.end?.dateTime || event.end?.date;
+          // Use created date if available, otherwise use start time
+          const createdAt = event.created || event.start?.dateTime || event.start?.date || '';
+          const eventideSource = event.extendedProperties?.private?.eventideSource;
+
+          events.push({
+            id: event.id || '',
+            title: event.summary || 'Untitled',
+            startTime,
+            endTime,
+            location: event.location,
+            description: event.description,
+            isAllDay,
+            createdAt,
+            eventideSource
+          });
+        }
+      }
+
+      // Sort by start time descending (most recent first)
+      return events.sort((a, b) => 
+        new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+      );
+    } catch (error: any) {
+      console.error('Get history error:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Delete an event by ID
+   */
+  async deleteEvent(calendarId: string, eventId: string): Promise<boolean> {
+    try {
+      await this.calendar.events.delete({
+        calendarId,
+        eventId
+      });
+      return true;
+    } catch (error: any) {
+      console.error('Delete event error:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Get a single event by ID
+   */
+  async getEvent(calendarId: string, eventId: string): Promise<{
+    id: string;
+    title: string;
+    startTime: string;
+    endTime?: string;
+    location?: string;
+    description?: string;
+    isAllDay: boolean;
+    isEventideEvent?: boolean;
+    eventideSource?: string;
+  } | null> {
+    try {
+      const response = await this.calendar.events.get({
+        calendarId,
+        eventId
+      });
+
+      const event = response.data;
+      const isAllDay = !!event.start?.date;
+      const startTime = event.start?.dateTime || event.start?.date || '';
+      const endTime = event.end?.dateTime || event.end?.date;
+
+      const isEventideEvent = event.extendedProperties?.private?.eventideCreated === 'true';
+      const eventideSource = event.extendedProperties?.private?.eventideSource;
+
+      return {
+        id: event.id || '',
+        title: event.summary || 'Untitled',
+        startTime,
+        endTime,
+        location: event.location,
+        description: event.description,
+        isAllDay,
+        isEventideEvent,
+        eventideSource
+      };
+    } catch (error: any) {
+      console.error('Get event error:', error.message);
+      return null;
+    }
   }
 }
 

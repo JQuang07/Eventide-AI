@@ -31,93 +31,151 @@ router.post('/', async (req, res, next) => {
       extracted = await geminiExtractor.extractFromImage(data);
       sourceMetadata.imageUrl = data.substring(0, 100); // Store reference
     } else if (type === 'url') {
-      const metadata = await urlExpander.expand(data);
+      // Stage 1: Parse metadata/description in parallel with video extraction
+      const metadataPromise = urlExpander.expand(data);
       sourceMetadata.originalUrl = data;
-      sourceMetadata.imageUrl = metadata.imageUrl;
       
       // Check if URL is a video
       const isVideo = isVideoUrl(data);
       
-      let textToExtract = `${metadata.title || ''} ${metadata.description || ''} ${data}`;
-      
       if (isVideo) {
         try {
-          console.log('[Extract] Detected video URL, extracting frames and audio...');
+          console.log('[Extract] Detected video URL, processing in stages...');
           const videoFrameExtractor = new VideoFrameExtractor();
           const audioTranscriber = new AudioTranscriber();
           
-          // Extract frames and audio
-          const videoResult = await videoFrameExtractor.extractFrames(data, 5, true);
+          // Stage 1: Extract frames, audio, and metadata ALL IN PARALLEL
+          console.log('[Extract] Stage 1: Extracting frames, audio, and metadata in parallel...');
+          const [videoResult, metadata] = await Promise.all([
+            videoFrameExtractor.extractFrames(data, 5, true), // Extract both frames and audio
+            metadataPromise
+          ]);
           
-          let transcription = '';
-          if (videoResult.audioPath) {
-            try {
-              console.log('[Extract] Transcribing audio...');
-              transcription = await audioTranscriber.transcribe(videoResult.audioPath);
-              console.log(`[Extract] Transcription: ${transcription.substring(0, 100)}...`);
-              
-              // Clean up audio file after transcription
-              await videoFrameExtractor.cleanupAudio(videoResult.audioPath);
-            } catch (error: any) {
-              console.warn('[Extract] Audio transcription failed:', error.message);
-              // Continue without transcription
-            }
-          }
+          sourceMetadata.imageUrl = metadata.imageUrl;
+          sourceMetadata.videoFramesExtracted = videoResult.frames.length;
+          sourceMetadata.hasAudio = !!videoResult.audioPath;
           
-          if (videoResult.frames.length > 0) {
-            console.log(`[Extract] Extracted ${videoResult.frames.length} frames, analyzing with Gemini...`);
+          // Stage 2: Process ALL 3 sources IN PARALLEL (frames, audio, description)
+          console.log('[Extract] Stage 2: Processing frames, audio, and description in parallel...');
+          const [frameAnalyses, transcription, descriptionAnalysis] = await Promise.all([
+            // Analyze frames with Gemini Vision (with timeout)
+            videoResult.frames.length > 0
+              ? Promise.race([
+                  geminiExtractor.extractFromVideoFrames(videoResult.frames.map(f => f.base64)),
+                  new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Frame analysis timeout')), 15000)
+                  )
+                ]).catch(err => {
+                  console.warn('[Extract] Frame analysis failed or timed out:', err.message);
+                  return { title: '', date: '', description: '', location: '' } as any;
+                }) as Promise<any>
+              : Promise.resolve({ title: '', date: '', description: '', location: '' } as any),
             
-            // Analyze frames with Gemini Vision
-            const frameAnalyses = await geminiExtractor.extractFromVideoFrames(
-              videoResult.frames.map(f => f.base64)
-            );
+            // Transcribe audio (first 2 minutes, fast) with timeout
+            videoResult.audioPath
+              ? Promise.race([
+                  audioTranscriber.transcribe(videoResult.audioPath)
+                    .then(t => {
+                      // Clean up audio file after transcription
+                      if (videoResult.audioPath) {
+                        videoFrameExtractor.cleanupAudio(videoResult.audioPath).catch(() => {});
+                      }
+                      return t;
+                    }),
+                  new Promise<string>((_, reject) => 
+                    setTimeout(() => reject(new Error('Transcription timeout')), 20000)
+                  )
+                ]).catch(err => {
+                  console.warn('[Extract] Audio transcription failed or timed out:', err.message);
+                  // Clean up audio file on timeout
+                  if (videoResult.audioPath) {
+                    videoFrameExtractor.cleanupAudio(videoResult.audioPath).catch(() => {});
+                  }
+                  return '';
+                })
+              : Promise.resolve(''),
             
-            // Combine frame analysis, transcription, and metadata
-            const combinedText = [
-              metadata.title || '',
-              metadata.description || '',
-              transcription,
-              frameAnalyses.title || '',
-              frameAnalyses.date || '',
-              frameAnalyses.time || '',
-              frameAnalyses.location || '',
-              frameAnalyses.description || '',
-              data
-            ].filter(Boolean).join(' ');
-            
-            textToExtract = combinedText;
-            
-            sourceMetadata.videoFramesExtracted = videoResult.frames.length;
-            sourceMetadata.hasAudio = !!videoResult.audioPath;
-            sourceMetadata.transcription = transcription ? transcription.substring(0, 500) : undefined;
-            sourceMetadata.frameAnalyses = {
-              title: frameAnalyses.title,
-              date: frameAnalyses.date,
-              time: frameAnalyses.time,
-              location: frameAnalyses.location
-            };
-            
-            // Use frame analysis directly if it has all required fields
-            if (frameAnalyses.title && frameAnalyses.date) {
-              extracted = frameAnalyses;
-            } else {
-              // Fall back to text extraction with combined data (including transcription)
-              extracted = await geminiExtractor.extractFromText(textToExtract);
+            // Parse description/metadata (with timeout)
+            Promise.race([
+              (async () => {
+                const descText = `${metadata.title || ''} ${metadata.description || ''}`.trim();
+                if (descText) {
+                  return await geminiExtractor.extractFromText(descText);
+                }
+                return { title: '', date: '', description: '', location: '' } as any;
+              })(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Description parsing timeout')), 10000)
+              )
+            ]).catch(err => {
+              console.warn('[Extract] Description parsing failed or timed out:', err.message);
+              return { title: '', date: '', description: '', location: '' } as any;
+            }) as Promise<any>
+          ]);
+          
+          console.log(`[Extract] Stage 2 complete - Frame analysis: ${frameAnalyses.title ? '✓' : '✗'}, Transcription: ${transcription.length} chars, Description: ${descriptionAnalysis.title ? '✓' : '✗'}`);
+          
+          sourceMetadata.transcription = transcription ? transcription.substring(0, 500) : undefined;
+          sourceMetadata.frameAnalyses = {
+            title: frameAnalyses.title,
+            date: frameAnalyses.date,
+            time: frameAnalyses.time,
+            location: frameAnalyses.location
+          };
+          
+          // Stage 3: Combine all sources and extract
+          console.log('[Extract] Stage 3: Combining all sources and extracting final event...');
+          const combinedText = [
+            metadata.title || '',
+            metadata.description || '',
+            transcription,
+            frameAnalyses.title || '',
+            frameAnalyses.date || '',
+            frameAnalyses.time || '',
+            frameAnalyses.location || '',
+            frameAnalyses.description || '',
+            descriptionAnalysis.title || '',
+            descriptionAnalysis.date || '',
+            descriptionAnalysis.time || '',
+            descriptionAnalysis.location || '',
+            descriptionAnalysis.description || '',
+            data
+          ].filter(Boolean).join(' ');
+          
+          // If frame analysis has complete info, use it directly
+          if (frameAnalyses.title && frameAnalyses.date) {
+            extracted = frameAnalyses;
+            console.log('[Extract] Using frame analysis (complete)');
+          } else if (descriptionAnalysis.title && descriptionAnalysis.date) {
+            extracted = descriptionAnalysis;
+            // For all-day events, ignore endTime with time component
+            if (!extracted.time && extracted.endTime) {
+              console.log('[Extract] All-day event detected, removing endTime with time component');
+              extracted.endTime = undefined;
             }
+            console.log('[Extract] Using description analysis (complete)');
           } else {
-            // No frames extracted, but we might have transcription
-            if (transcription) {
-              textToExtract = `${metadata.title || ''} ${metadata.description || ''} ${transcription} ${data}`;
+            // Use combined extraction (frames + transcription + metadata + description)
+            console.log('[Extract] Using combined extraction (all sources)');
+            extracted = await geminiExtractor.extractFromText(combinedText);
+            // For all-day events, ignore endTime with time component
+            if (!extracted.time && extracted.endTime) {
+              console.log('[Extract] All-day event detected, removing endTime with time component');
+              extracted.endTime = undefined;
             }
-            extracted = await geminiExtractor.extractFromText(textToExtract);
           }
         } catch (error: any) {
           console.error('[Extract] Video extraction failed:', error.message);
           // Fall back to metadata-only extraction
+          const metadata = await metadataPromise;
+          const textToExtract = `${metadata.title || ''} ${metadata.description || ''} ${data}`;
           extracted = await geminiExtractor.extractFromText(textToExtract);
         }
       } else {
         // Not a video URL, use standard text extraction
+        const metadata = await metadataPromise;
+        sourceMetadata.imageUrl = metadata.imageUrl;
+        const textToExtract = `${metadata.title || ''} ${metadata.description || ''} ${data}`;
         extracted = await geminiExtractor.extractFromText(textToExtract);
       }
     } else if (type === 'text') {
@@ -167,6 +225,7 @@ router.post('/', async (req, res, next) => {
 
     // Step 3: Build canonical event
     // If time is provided, use dateTime format; otherwise use date format for all-day event
+    console.log(`[Extract] Building event - extracted date: ${extracted.date}, time: ${extracted.time || 'null (all-day)'}`);
     const startTime = extracted.time 
       ? `${extracted.date}T${extracted.time}` 
       : extracted.date; // All-day event uses just the date (YYYY-MM-DD)
@@ -179,8 +238,10 @@ router.post('/', async (req, res, next) => {
         endTime = `${extracted.date}T${extracted.endTime}`;
       }
     } else {
-      // All-day event: end date is next day
+      // All-day event: end date is next day (date-only, no time)
+      // Ignore any extracted.endTime that has a time component
       endTime = getNextDay(extracted.date);
+      console.log(`[Extract] All-day event - start: ${startTime}, end: ${endTime} (date-only, no time)`);
     }
 
     const event: CanonicalEvent = {
@@ -213,9 +274,14 @@ router.post('/', async (req, res, next) => {
  * Get the next day for all-day event end date
  */
 function getNextDay(dateString: string): string {
-  const date = new Date(dateString);
-  date.setDate(date.getDate() + 1);
-  return date.toISOString().split('T')[0];
+  // Parse date string directly to avoid timezone issues
+  // dateString is in format YYYY-MM-DD
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(year, month - 1, day + 1); // month is 0-indexed, add 1 day
+  const nextYear = date.getFullYear();
+  const nextMonth = String(date.getMonth() + 1).padStart(2, '0');
+  const nextDay = String(date.getDate()).padStart(2, '0');
+  return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
 /**

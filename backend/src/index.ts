@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { extractRouter } from './routes/extract';
 import { saveRouter } from './routes/save';
+import { calendarRouter } from './routes/calendar';
+import { tasksRouter } from './routes/tasks';
 
 dotenv.config();
 
@@ -20,6 +22,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Routes
 app.use('/extract', extractRouter);
 app.use('/save', saveRouter);
+app.use('/calendar', calendarRouter);
+app.use('/tasks', tasksRouter);
 
 // Health check
 app.get('/health', (req, res) => {

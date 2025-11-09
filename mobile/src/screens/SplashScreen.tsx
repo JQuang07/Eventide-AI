@@ -41,7 +41,7 @@ export default function SplashScreen({ navigation }: SplashScreenProps) {
           useNativeDriver: true,
         }),
       ]).start(() => {
-        navigation.replace('Home');
+        navigation.replace('MainTabs');
       });
     }, 1500);
 

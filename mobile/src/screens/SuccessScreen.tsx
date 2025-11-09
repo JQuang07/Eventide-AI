@@ -1,10 +1,12 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../theme';
 
 export default function SuccessScreen({ route, navigation }: any) {
-  const { eventId, htmlLink } = route.params;
+  const { eventId, htmlLink, event } = route.params;
+  const insets = useSafeAreaInsets();
 
   const openInCalendar = () => {
     if (htmlLink) {
@@ -13,11 +15,28 @@ export default function SuccessScreen({ route, navigation }: any) {
   };
 
   const createAnother = () => {
-    navigation.navigate('Home');
+    navigation.navigate('MainTabs', { screen: 'Add' });
+  };
+  
+  const viewEvent = () => {
+    navigation.navigate('EventDetail', { eventId, event: route.params.event });
+  };
+
+  const goHome = () => {
+    navigation.navigate('MainTabs', { screen: 'Add' });
   };
 
   return (
     <View style={styles.container}>
+      <View style={[styles.backButtonContainer, { paddingTop: insets.top + theme.spacing.sm }]}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={goHome}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.backButtonText}>← Home</Text>
+        </TouchableOpacity>
+      </View>
       <Text style={styles.successIcon}>✅</Text>
       <Text style={styles.title}>Event Created!</Text>
       <Text style={styles.message}>
@@ -35,8 +54,15 @@ export default function SuccessScreen({ route, navigation }: any) {
         </LinearGradient>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.secondaryButton} onPress={createAnother}>
-        <Text style={styles.secondaryButtonText}>Create Another Event</Text>
+      <TouchableOpacity 
+        style={styles.secondaryButton} 
+        onPress={viewEvent}
+      >
+        <Text style={styles.secondaryButtonText}>View Event Details</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity style={styles.tertiaryButton} onPress={createAnother}>
+        <Text style={styles.tertiaryButtonText}>Create Another Event</Text>
       </TouchableOpacity>
     </View>
   );
@@ -88,6 +114,34 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: theme.colors.primary,
     fontSize: theme.typography.sizes.base
+  },
+  tertiaryButton: {
+    padding: theme.spacing.base,
+    width: '100%',
+    alignItems: 'center',
+    marginTop: theme.spacing.sm
+  },
+  tertiaryButtonText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.typography.sizes.sm
+  },
+  backButtonContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: theme.spacing.lg,
+    zIndex: 10,
+  },
+  backButton: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.base,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    color: theme.colors.primary,
+    fontSize: theme.typography.sizes.base,
+    fontWeight: theme.typography.weights.semibold
   }
 });
 

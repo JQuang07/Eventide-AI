@@ -19,6 +19,7 @@
   "dependencies": {
     "@google-cloud/aiplatform": "^3.0.0",
     "@google-cloud/speech": "^7.2.1",
+    "@google-cloud/storage": "^7.17.3",
     "@google/generative-ai": "^0.24.1",
     "@googleapis/calendar": "^6.0.0",
     "@googlemaps/google-maps-services-js": "^3.3.38",

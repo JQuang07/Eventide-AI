@@ -12,6 +12,7 @@ import {
   Keyboard,
   KeyboardAvoidingView
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { ApiService } from '../services/api';
@@ -24,6 +25,7 @@ export default function ReviewScreen({ route, navigation }: any) {
   const { event: initialEvent } = route.params;
   const [event, setEvent] = useState<CanonicalEvent>(initialEvent);
   const [saving, setSaving] = useState(false);
+  const insets = useSafeAreaInsets();
   
   // Date picker states
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -52,7 +54,11 @@ export default function ReviewScreen({ route, navigation }: any) {
     setSaving(true);
     try {
       const response = await apiService.save(event);
-      navigation.navigate('Success', { eventId: response.eventId, htmlLink: response.htmlLink });
+      navigation.navigate('Success', { 
+        eventId: response.eventId, 
+        htmlLink: response.htmlLink,
+        event: event 
+      });
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to save event');
     } finally {
@@ -100,6 +106,7 @@ export default function ReviewScreen({ route, navigation }: any) {
   const getCompletionStatus = () => {
     const requiredFields = [event.title, event.startTime];
     const optionalFields = [event.description, event.location, event.endTime];
+    const hasConflicts = event.conflicts && event.conflicts.length > 0;
     
     const requiredCount = requiredFields.filter(f => f).length;
     const optionalCount = optionalFields.filter(f => f).length;
@@ -108,11 +115,11 @@ export default function ReviewScreen({ route, navigation }: any) {
     if (requiredCount < requiredFields.length) {
       return { color: '#ff3b30', bgColor: 'rgba(255, 59, 48, 0.15)' };
     }
-    // Yellow: has required but missing some optional
-    if (optionalCount < optionalFields.length) {
+    // Yellow: has required but missing some optional OR has conflicts
+    if (optionalCount < optionalFields.length || hasConflicts) {
       return { color: '#ffcc00', bgColor: 'rgba(255, 204, 0, 0.15)' };
     }
-    // Green: all fields filled
+    // Green: all fields filled and no conflicts
     return { color: '#34c759', bgColor: 'rgba(52, 199, 89, 0.15)' };
   };
 
@@ -121,14 +128,54 @@ export default function ReviewScreen({ route, navigation }: any) {
   return (
     <KeyboardAvoidingView 
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 200 : 40}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
+      <View style={[styles.backButtonContainer, { paddingTop: insets.top + theme.spacing.sm }]}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate('MainTabs', { screen: 'Add' })}
+          activeOpacity={0.7}
+          disabled={saving}
+        >
+          <Text style={styles.backButtonText}>Cancel</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Event Details</Text>
+        <View style={styles.topSaveButtonWrapper}>
+          <TouchableOpacity
+            onPress={handleSave}
+            disabled={saving || !event.title || !event.startTime}
+            activeOpacity={0.8}
+          >
+            {saving || !event.title || !event.startTime ? (
+              <View style={[styles.topSaveButton, styles.topSaveButtonDisabled]}>
+                {saving ? (
+                  <ActivityIndicator color={theme.colors.textSecondary} size="small" />
+                ) : (
+                  <Text style={styles.topSaveButtonTextDisabled}>Save</Text>
+                )}
+              </View>
+            ) : (
+              <LinearGradient
+                colors={theme.colors.gradient.sunset}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.topSaveButton}
+              >
+                <Text style={styles.topSaveButtonText}>Save</Text>
+              </LinearGradient>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
       <ScrollView 
         style={styles.scrollView}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent, 
+          { paddingTop: theme.spacing.xs }
+        ]}
         showsVerticalScrollIndicator={true}
       >
         {/* Compact summary at top */}
@@ -183,10 +230,18 @@ export default function ReviewScreen({ route, navigation }: any) {
                 {(event.startTime && event.startTime.includes('T')) ? 'Time' : 'None'}
               </Text>
             </View>
+
+            {/* Conflicts */}
+            <View style={styles.summaryItem}>
+              <View style={[styles.summaryIconContainer, { backgroundColor: (event.conflicts && event.conflicts.length > 0) ? '#ff3b3020' : '#34c75920' }]}>
+                <Text style={styles.summaryIconText}>⚠️</Text>
+              </View>
+              <Text style={[styles.summaryLabel, (event.conflicts && event.conflicts.length > 0) && styles.summaryLabelError]} numberOfLines={1}>
+                {(event.conflicts && event.conflicts.length > 0) ? 'Conflicts' : 'None'}
+              </Text>
+            </View>
           </View>
         </View>
-
-        <Text style={styles.sectionTitle}>Event Details</Text>
 
       <View style={styles.fieldContainer}>
         <Text style={styles.label}>Title *</Text>
@@ -222,7 +277,16 @@ export default function ReviewScreen({ route, navigation }: any) {
           <Text style={styles.dateTimeText}>
             {event.startTime.includes('T') 
               ? formatDateTime(event.startTime) 
-              : `All-Day Event: ${new Date(event.startTime).toLocaleDateString()}`}
+              : (() => {
+                  // Parse date-only strings in local timezone to avoid timezone shifts
+                  const dateStr = event.startTime;
+                  if (!dateStr.includes('T')) {
+                    const [year, month, day] = dateStr.split('-').map(Number);
+                    const date = new Date(year, month - 1, day);
+                    return `All-Day Event: ${date.toLocaleDateString()}`;
+                  }
+                  return `All-Day Event: ${new Date(dateStr).toLocaleDateString()}`;
+                })()}
           </Text>
           <Text style={styles.tapHint}>Tap to edit</Text>
         </TouchableOpacity>
@@ -257,7 +321,10 @@ export default function ReviewScreen({ route, navigation }: any) {
         <Text style={styles.label}>
           End Time {!event.endTime && <Text style={styles.optionalLabel}>(Optional)</Text>}
         </Text>
-        {event.endTime ? (
+        {/* Hide end time field for all-day events */}
+        {!event.startTime.includes('T') ? (
+          <Text style={styles.hintText}>All-day events don't have end times</Text>
+        ) : event.endTime ? (
           <>
             <TouchableOpacity 
               style={styles.datePickerButton}
@@ -391,13 +458,6 @@ export default function ReviewScreen({ route, navigation }: any) {
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.cancelButton}
-        onPress={() => navigation.goBack()}
-        disabled={saving}
-      >
-        <Text style={styles.cancelButtonText}>Cancel</Text>
-      </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -408,20 +468,73 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.backgroundLight
   },
+  backButtonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.xs,
+    backgroundColor: theme.colors.backgroundLight,
+    zIndex: 10,
+  },
+  backButton: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.base,
+    minWidth: 80,
+  },
+  backButtonText: {
+    color: theme.colors.error,
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.semibold,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: theme.typography.weights.bold,
+    color: theme.colors.text,
+  },
+  topSaveButtonWrapper: {
+    width: 70,
+    alignItems: 'flex-end',
+  },
+  topSaveButton: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.base,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 60,
+  },
+  topSaveButtonDisabled: {
+    backgroundColor: theme.colors.border,
+  },
+  topSaveButtonText: {
+    color: theme.colors.textOnGradient,
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.semibold,
+  },
+  topSaveButtonTextDisabled: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.semibold,
+  },
   scrollView: {
     flex: 1
   },
   scrollContent: {
-    padding: theme.spacing.lg
+    padding: theme.spacing.lg,
+    paddingTop: theme.spacing['2xl'],
+    paddingBottom: theme.spacing['3xl']
   },
   sectionTitle: {
     fontSize: theme.typography.sizes['2xl'],
     fontWeight: theme.typography.weights.bold,
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.xl,
+    marginTop: theme.spacing.base,
     color: theme.colors.text
   },
   fieldContainer: {
-    marginBottom: theme.spacing.lg
+    marginBottom: theme.spacing.xl
   },
   label: {
     fontSize: theme.typography.sizes.sm,
@@ -496,14 +609,6 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.lg,
     fontWeight: theme.typography.weights.semibold
   },
-  cancelButton: {
-    padding: theme.spacing.base,
-    alignItems: 'center'
-  },
-  cancelButtonText: {
-    color: theme.colors.primary,
-    fontSize: theme.typography.sizes.base
-  },
   optionalLabel: {
     fontSize: 12,
     fontWeight: '400',
@@ -519,7 +624,8 @@ const styles = StyleSheet.create({
   summaryContainer: {
     borderRadius: 6,
     padding: 8,
-    marginBottom: 12,
+    marginBottom: theme.spacing.lg,
+    marginTop: theme.spacing.xs,
     borderWidth: 1.5
   },
   summaryRow: {
