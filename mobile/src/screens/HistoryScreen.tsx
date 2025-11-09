@@ -123,10 +123,10 @@ export default function HistoryScreen({ navigation }: any) {
   const renderRightActions = (event: HistoryEvent) => {
     return (
       <TouchableOpacity
-        style={styles.removeFromHistoryAction}
-        onPress={() => handleDeleteFromHistory(event.id, event.title)}
+        style={styles.deleteFromCalendarAction}
+        onPress={() => handleDeleteFromCalendar(event.id, event.title)}
       >
-        <Text style={styles.removeFromHistoryActionText}>Remove</Text>
+        <Text style={styles.deleteFromCalendarActionText}>Delete</Text>
       </TouchableOpacity>
     );
   };
@@ -134,10 +134,10 @@ export default function HistoryScreen({ navigation }: any) {
   const renderLeftActions = (event: HistoryEvent) => {
     return (
       <TouchableOpacity
-        style={styles.deleteFromCalendarAction}
-        onPress={() => handleDeleteFromCalendar(event.id, event.title)}
+        style={styles.removeFromHistoryAction}
+        onPress={() => handleDeleteFromHistory(event.id, event.title)}
       >
-        <Text style={styles.deleteFromCalendarActionText}>Delete</Text>
+        <Text style={styles.removeFromHistoryActionText}>Remove</Text>
       </TouchableOpacity>
     );
   };
